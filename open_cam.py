@@ -1,63 +1,64 @@
 import cv2 as cv
 import functions
 
-cam = cv.VideoCapture(0) #Iniciando a WebCam
-file_name = "haarcascade_frontalface_alt2.xml"
-classifier = cv.CascadeClassifier(f"{cv.haarcascades}/{file_name}") #Modelo para reconhecer faces
+# Configurações da Webcam
+CAMERA_INDEX = 0
+FULL_HD_WIDTH = 1920
+FULL_HD_HEIGHT = 1080
 
-dataframe = functions.load_dataframe() #Carregando dataframe com as imagens para treinamento
+# Configurações do Classificador
+CASCADE_PATH = f"{cv.data.haarcascades}/haarcascade_frontalface_alt2.xml"
+FACE_MIN_SIZE = (200, 200) # Tamanho mínimo da face para reconhecimento
+RESIZED_FACE_DIMS = (160, 160) # Dimensões para redimensionar a face antes de aplicar PCA
 
-X_train, X_test, y_train, y_test = functions.train_test(dataframe) #Dividindo conjuntos de treino e teste
-pca = functions.pca_model(X_train) #Modelo PCA para extração de features da imagem
+# Configurações de detecção e classificação
+PCA_FEATURES = 30  # Número de componentes principais
+KNN_NEIGHBORS = 3   # Número de vizinhos mais próximos em KNN
 
-X_train = pca.transform(X_train) #Conjunto de treino com features extraídas
-X_test = pca.transform(X_test) #Conjunto de teste com features extraídas
+# Carregar dados e modelos
+dataframe = functions.load_dataframe()
+X_train, X_test, y_train, y_test = functions.train_test(dataframe)
+pca = functions.pca_model(X_train)
+X_train = pca.transform(X_train)
+X_test = pca.transform(X_test)
+knn = functions.knn(X_train, y_train)
 
-knn = functions.knn(X_train, y_train) #Treinando modelo classificatório KNN
+# Inicializando a câmera
+cam = cv.VideoCapture(CAMERA_INDEX)
+cam.set(cv.CAP_PROP_FRAME_WIDTH, FULL_HD_WIDTH)
+cam.set(cv.CAP_PROP_FRAME_HEIGHT, FULL_HD_HEIGHT)
 
-#Rótulo das classificações
-label = {
-    0: "Sem mascara",
-    1: "Com mascara"
-}
+# Carregando classificador de Haar
+classifier = cv.CascadeClassifier(CASCADE_PATH)
 
-#Abrindo a webcam...
+# Rótulos
+labels = {0: "Sem mascara", 1: "Com mascara"}
+
+# Processamento de frames
 while True:
-    status, frame = cam.read() #Lendo a imagem e extraindo frame
-
+    status, frame = cam.read()
     if not status:
         break
 
+    gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+    faces = classifier.detectMultiScale(gray, minSize=FACE_MIN_SIZE)
+
+    for x, y, w, h in faces:
+        gray_face = gray[y:y+h, x:x+w]
+        gray_face = cv.resize(gray_face, RESIZED_FACE_DIMS)
+        vector = pca.transform([gray_face.flatten()])
+        pred = knn.predict(vector)[0]
+        classification = labels[pred]
+
+        color = (0, 255, 0) if pred == 1 else (0, 0, 255)
+        cv.rectangle(frame, (x, y), (x+w, y+h), color, 3)
+        cv.putText(frame, classification, (x, y + h + 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+
+    cv.putText(frame, f"{len(faces)} rostos identificados", (20, 20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 2)
+    cv.imshow("Cam", frame)
+
     if cv.waitKey(1) & 0xff == ord('q'):
         break
-    
-    #Transformando a imagem em escala de cinza
-    gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-    
-    #Detectando faces na imagem
-    faces = classifier.detectMultiScale(gray)
 
-    #Iterando nas faces encontradas
-    for x,y,w,h in faces:
-        gray_face = gray[y:y+h, x:x+w] #Recortand região da face
-
-        if gray_face.shape[0] >= 200 and gray_face.shape[1] >= 200:
-            gray_face = cv.resize(gray_face, (160,160)) #Redimensionando
-            vector = pca.transform([gray_face.flatten()]) #Extraindo features da imagem
-
-            pred = knn.predict(vector)[0] #Classificando a imagem
-            classification = label[pred]
-
-            #Desenhando retangulos em torno da face
-            if pred == 0:
-                cv.rectangle(frame, (x,y), (x+w, y+h), (0,0,255), 3)
-                print("\a")
-            elif pred == 1:
-                cv.rectangle(frame, (x,y), (x+w, y+h), (0,255,0), 3)
-            
-            #Escrevendo classificação e quantidade de faces vistas
-            cv.putText(frame, classification, (x - 20,y + h + 50), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0), 2, cv.LINE_AA)
-            cv.putText(frame, f"{len(faces)} rostos identificados",(20,20), cv.FONT_HERSHEY_SIMPLEX, 0.5, (255,0,0), 2, cv.LINE_AA)
-
-    #Mostrando o frame
-    cv.imshow("Cam", frame)
+cam.release()
+cv.destroyAllWindows()

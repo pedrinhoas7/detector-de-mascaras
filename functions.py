@@ -48,7 +48,7 @@ def train_test(dataframe):
     X = list(dataframe["IMAGEM"])
     y = list(dataframe["ALVO"])
 
-    return train_test_split(X, y, train_size=0.40, random_state=13)
+    return train_test_split(X, y, train_size=0.60, random_state=13)
 
 
 def pca_model(X_train):
